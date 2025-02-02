@@ -21,9 +21,14 @@ public partial class App : Application
             this.DispatcherUnhandledException += App_DispatcherUnhandledException;
             AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
 
-            // Create a console window for debug output
-            AllocConsole();
+            // Set shutdown mode to close app when main window closes
+            this.ShutdownMode = ShutdownMode.OnMainWindowClose;
+
+#if DEBUG
+            // Create a console window for debug output only in Debug mode
+            // AllocConsole();  // Comment out or remove this line to disable the console window
             Console.WriteLine("Debug console initialized.");
+#endif
         }
         catch (Exception ex)
         {
@@ -38,12 +43,33 @@ public partial class App : Application
         {
             base.OnStartup(e);
             Console.WriteLine("Base OnStartup completed.");
+
+            // Show the main window
+            MainWindow = new MainWindow();
+            MainWindow.Show();
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Error in OnStartup: {ex}");
             MessageBox.Show($"Startup error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
         }
+    }
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        // Ensure all child processes are stopped before exiting
+        foreach (var window in Windows.OfType<MainWindow>())
+        {
+            var viewModel = window.DataContext as ViewModels.MainViewModel;
+            viewModel?.StopAllProfiles();
+        }
+
+#if DEBUG
+        // Free the debug console if it was allocated
+        FreeConsole();
+#endif
+
+        base.OnExit(e);
     }
 
     private void App_DispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
@@ -91,5 +117,8 @@ public partial class App : Application
 
     [System.Runtime.InteropServices.DllImport("kernel32.dll")]
     private static extern bool AllocConsole();
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+    private static extern bool FreeConsole();
 }
 

@@ -11,7 +11,11 @@
         Width="1000"
         WindowStartupLocation="CenterScreen">
 
-    <!-- Bind the window to our MainViewModel -->
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
+        <local:InverseBooleanConverter x:Key="InverseBooleanConverter"/>
+    </Window.Resources>
+
     <Window.DataContext>
         <vm:MainViewModel/>
     </Window.DataContext>
@@ -100,8 +104,7 @@
                         Content="{Binding LaunchButtonText}"
                         Command="{Binding LaunchProfileCommand}"
                         Margin="10,0,0,0"
-                        Padding="10,5"
-                        Background="{Binding SelectedProfile.IsRunning, Converter={StaticResource BoolToButtonBackgroundConverter}}"/>
+                        Padding="10,5"/>
             </Grid>
 
             <!-- Processes section -->
@@ -124,7 +127,7 @@
                 </StackPanel>
 
                 <!-- Grid displaying all processes in the profile -->
-                <DataGrid ItemsSource="{Binding SelectedProfile.Processes}"
+                <DataGrid ItemsSource="{Binding SelectedProfile.Applications}"
                           SelectedItem="{Binding SelectedProcess}"
                           AutoGenerateColumns="False"
                           CanUserAddRows="False">
@@ -135,8 +138,12 @@
                                             Width="200"/>
                         <!-- Executable path column -->
                         <DataGridTextColumn Header="Executable Path"
-                                            Binding="{Binding ExecutablePath}"
+                                            Binding="{Binding Path}"
                                             Width="*"/>
+                        <!-- Arguments column -->
+                        <DataGridTextColumn Header="Arguments"
+                                            Binding="{Binding Arguments}"
+                                            Width="200"/>
                         <!-- Browse button column for selecting executable files -->
                         <DataGridTemplateColumn Width="100">
                             <DataGridTemplateColumn.CellTemplate>

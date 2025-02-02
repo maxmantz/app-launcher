@@ -1,10 +1,5 @@
-using System;
-using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.IO;
-using System.Linq;
 using System.Text.Json;
-using System.Threading.Tasks;
 using AppLauncher.Models;
 
 namespace AppLauncher.Services
@@ -15,68 +10,74 @@ namespace AppLauncher.Services
     public class ProfileService
     {
         private readonly string _profilesPath;
+        private Task? _lastSaveTask;
+        private readonly object _saveLock = new object();
 
         /// <summary>
         /// Initializes the service and ensures the application data directory exists
         /// </summary>
         public ProfileService()
         {
-            // Create the application data directory in the user's AppData folder
-            var appDataPath = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "AppLauncher"
-            );
-            Directory.CreateDirectory(appDataPath);
-            _profilesPath = Path.Combine(appDataPath, "profiles.json");
+            var appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            var appFolder = Path.Combine(appDataPath, "AppLauncher");
+            _profilesPath = Path.Combine(appFolder, "profiles.json");
+
+            // Create directory if it doesn't exist
+            Directory.CreateDirectory(appFolder);
         }
 
         /// <summary>
         /// Saves the list of profiles to a JSON file
         /// </summary>
         /// <param name="profiles">The profiles to save</param>
-        public async Task SaveProfilesAsync(IEnumerable<LaunchProfile> profiles)
+        public async Task SaveProfilesAsync(IEnumerable<Profile> profiles)
         {
-            // Create an anonymous type to control JSON serialization
-            var profilesList = profiles.Select(p => new
+            lock (_saveLock)
             {
-                p.Name,
-                Processes = p.Processes.Select(proc => new
-                {
-                    proc.Name,
-                    proc.ExecutablePath
-                }).ToList()
-            }).ToList();
+                // If there's a save in progress, wait for it to complete
+                _lastSaveTask?.Wait();
 
-            // Serialize with indentation for readability
-            var json = JsonSerializer.Serialize(profilesList, new JsonSerializerOptions
+                // Start new save operation
+                _lastSaveTask = SaveProfilesInternalAsync(profiles);
+            }
+
+            await _lastSaveTask;
+        }
+
+        private async Task SaveProfilesInternalAsync(IEnumerable<Profile> profiles)
+        {
+            var json = JsonSerializer.Serialize(profiles, new JsonSerializerOptions
             {
                 WriteIndented = true
             });
-            await File.WriteAllTextAsync(_profilesPath, json);
+
+            // Use FileShare.None to ensure exclusive access
+            using var fileStream = new FileStream(_profilesPath, FileMode.Create, FileAccess.Write, FileShare.None);
+            using var writer = new StreamWriter(fileStream);
+            await writer.WriteAsync(json);
         }
 
         /// <summary>
         /// Loads profiles from the JSON file
         /// </summary>
         /// <returns>The list of loaded profiles, or an empty list if the file doesn't exist</returns>
-        public async Task<List<LaunchProfile>> LoadProfilesAsync()
+        public async Task<List<Profile>> LoadProfilesAsync()
         {
             if (!File.Exists(_profilesPath))
             {
-                return new List<LaunchProfile>();
+                return new List<Profile>();
             }
 
-            var json = await File.ReadAllTextAsync(_profilesPath);
-            var profiles = JsonSerializer.Deserialize<List<LaunchProfile>>(json) ?? new List<LaunchProfile>();
-
-            // Convert the loaded profiles to use ObservableCollection
-            foreach (var profile in profiles)
+            try
             {
-                var processes = profile.Processes.ToList();
-                profile.Processes = new ObservableCollection<ProcessInfo>(processes);
+                var json = await File.ReadAllTextAsync(_profilesPath);
+                var profiles = JsonSerializer.Deserialize<List<Profile>>(json);
+                return profiles ?? new List<Profile>();
             }
-
-            return profiles;
+            catch
+            {
+                return new List<Profile>();
+            }
         }
     }
 }

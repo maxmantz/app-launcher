@@ -18,35 +18,34 @@ namespace AppLauncher.ViewModels
     /// <summary>
     /// Main view model that handles the application's logic and state
     /// </summary>
-    public class MainViewModel : INotifyPropertyChanged
+    public class MainViewModel : ViewModelBase
     {
         private readonly ProfileService _profileService;
-        private LaunchProfile? _selectedProfile;
-        private ProcessInfo? _selectedProcess;
+        private Profile? _selectedProfile;
+        private Models.Application? _selectedProcess;
+        private bool _isLaunching;
 
         /// <summary>
         /// Observable collection of all launch profiles
         /// </summary>
-        public ObservableCollection<LaunchProfile> Profiles { get; } = new();
+        public ObservableCollection<Profile> Profiles { get; } = new();
 
         /// <summary>
         /// Currently selected launch profile
         /// </summary>
-        public LaunchProfile? SelectedProfile
+        public Profile? SelectedProfile
         {
             get => _selectedProfile;
             set
             {
-                // Unsubscribe from previous profile's collection changes
                 if (_selectedProfile != null)
                 {
-                    _selectedProfile.Processes.CollectionChanged -= ProcessesCollectionChanged;
+                    _selectedProfile.Applications.CollectionChanged -= ProcessesCollectionChanged;
                 }
                 _selectedProfile = value;
-                // Subscribe to new profile's collection changes
                 if (_selectedProfile != null)
                 {
-                    _selectedProfile.Processes.CollectionChanged += ProcessesCollectionChanged;
+                    _selectedProfile.Applications.CollectionChanged += ProcessesCollectionChanged;
                 }
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(IsProfileSelected));
@@ -57,7 +56,7 @@ namespace AppLauncher.ViewModels
         /// <summary>
         /// Currently selected process in the profile
         /// </summary>
-        public ProcessInfo? SelectedProcess
+        public Models.Application? SelectedProcess
         {
             get => _selectedProcess;
             set
@@ -83,12 +82,22 @@ namespace AppLauncher.ViewModels
         /// </summary>
         public string LaunchButtonText => SelectedProfile?.IsRunning == true ? "Stop Profile" : "Launch Profile";
 
+        public bool IsLaunching
+        {
+            get => _isLaunching;
+            set
+            {
+                _isLaunching = value;
+                OnPropertyChanged();
+            }
+        }
+
         // Commands for UI interactions
         public ICommand AddProfileCommand { get; }
         public ICommand DeleteProfileCommand { get; }
         public ICommand AddProcessCommand { get; }
         public ICommand DeleteProcessCommand { get; }
-        public ICommand LaunchProfileCommand { get; }
+        public RelayCommand LaunchProfileCommand { get; }
         public ICommand BrowseExecutableCommand { get; }
 
         public MainViewModel()
@@ -100,48 +109,56 @@ namespace AppLauncher.ViewModels
             DeleteProfileCommand = new RelayCommand(DeleteProfile, () => IsProfileSelected);
             AddProcessCommand = new RelayCommand(AddProcess, () => IsProfileSelected);
             DeleteProcessCommand = new RelayCommand(DeleteProcess, () => IsProcessSelected);
-            LaunchProfileCommand = new RelayCommand(ToggleProfileExecution, () => IsProfileSelected);
+            LaunchProfileCommand = new RelayCommand(LaunchProfile, () => IsProfileSelected);
             BrowseExecutableCommand = new RelayCommand(BrowseExecutable, () => IsProcessSelected);
 
             LoadProfiles();
         }
 
         /// <summary>
-        /// Toggles the execution state of the selected profile
-        /// </summary>
-        private void ToggleProfileExecution()
-        {
-            if (SelectedProfile == null) return;
-
-            if (SelectedProfile.IsRunning)
-            {
-                StopProfile(SelectedProfile);
-            }
-            else
-            {
-                LaunchProfile();
-            }
-        }
-
-        /// <summary>
         /// Stops all processes in the specified profile
         /// </summary>
-        private void StopProfile(LaunchProfile profile)
+        private void StopProfile(Profile profile)
         {
-            foreach (var process in profile.Processes)
+            foreach (var app in profile.Applications)
             {
                 try
                 {
-                    if (process.RunningProcess != null && !process.RunningProcess.HasExited)
+                    // First try to stop the process if we have a direct reference
+                    if (app.RunningProcess != null && !app.RunningProcess.HasExited)
                     {
-                        process.RunningProcess.Kill(true);
-                        process.RunningProcess.Dispose();
-                        process.RunningProcess = null;
+                        app.RunningProcess.Kill(true);
+                        app.RunningProcess.Dispose();
+                        app.RunningProcess = null;
+                        continue;
+                    }
+
+                    // If we don't have a direct reference or it's already exited,
+                    // search for processes by executable name
+                    if (!string.IsNullOrEmpty(app.Path))
+                    {
+                        var processName = Path.GetFileNameWithoutExtension(app.Path);
+                        var processes = Process.GetProcessesByName(processName);
+
+                        foreach (var process in processes)
+                        {
+                            try
+                            {
+                                if (!process.HasExited)
+                                {
+                                    process.Kill(true);
+                                }
+                            }
+                            finally
+                            {
+                                process.Dispose();
+                            }
+                        }
                     }
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show($"Failed to stop process {process.Name}: {ex.Message}",
+                    MessageBox.Show($"Failed to stop process {app.Name}: {ex.Message}",
                                   "Error",
                                   MessageBoxButton.OK,
                                   MessageBoxImage.Warning);
@@ -168,7 +185,7 @@ namespace AppLauncher.ViewModels
             Profiles.Clear();
             foreach (var profile in profiles)
             {
-                profile.Processes.CollectionChanged += ProcessesCollectionChanged;
+                profile.Applications.CollectionChanged += ProcessesCollectionChanged;
                 Profiles.Add(profile);
             }
         }
@@ -186,8 +203,8 @@ namespace AppLauncher.ViewModels
         /// </summary>
         private void AddProfile()
         {
-            var profile = new LaunchProfile { Name = "New Profile" };
-            profile.Processes.CollectionChanged += ProcessesCollectionChanged;
+            var profile = new Profile { Name = "New Profile" };
+            profile.Applications.CollectionChanged += ProcessesCollectionChanged;
             Profiles.Add(profile);
             SelectedProfile = profile;
             SaveProfiles();
@@ -203,7 +220,7 @@ namespace AppLauncher.ViewModels
             {
                 StopProfile(SelectedProfile);
             }
-            SelectedProfile.Processes.CollectionChanged -= ProcessesCollectionChanged;
+            SelectedProfile.Applications.CollectionChanged -= ProcessesCollectionChanged;
             Profiles.Remove(SelectedProfile);
             SaveProfiles();
         }
@@ -214,9 +231,9 @@ namespace AppLauncher.ViewModels
         private void AddProcess()
         {
             if (SelectedProfile == null) return;
-            var process = new ProcessInfo { Name = "New Process" };
-            SelectedProfile.Processes.Add(process);
-            SelectedProcess = process;
+            var app = new Models.Application { Name = "New Process" };
+            SelectedProfile.Applications.Add(app);
+            SelectedProcess = app;
         }
 
         /// <summary>
@@ -240,71 +257,78 @@ namespace AppLauncher.ViewModels
                                   MessageBoxImage.Warning);
                 }
             }
-            SelectedProfile.Processes.Remove(SelectedProcess);
+            SelectedProfile.Applications.Remove(SelectedProcess);
         }
 
         /// <summary>
-        /// Launches all processes in the selected profile
+        /// Checks if a process is running
         /// </summary>
-        private void LaunchProfile()
+        /// <param name="processName"></param>
+        /// <returns></returns>
+        private bool IsProcessRunning(string processName)
+        {
+            Process runningProcess = Process.GetProcessesByName(processName).FirstOrDefault();
+
+            return runningProcess != null && !runningProcess.HasExited;
+        }
+
+        /// <summary>
+        /// Launches a profile
+        /// </summary>
+        /// <param name="profile"></param>
+        /// <returns></returns>
+        public async void LaunchProfile()
         {
             if (SelectedProfile == null) return;
+            IsLaunching = true;
 
-            bool anyProcessStarted = false;
-            foreach (var process in SelectedProfile.Processes)
+            try
             {
-                if (string.IsNullOrEmpty(process.ExecutablePath)) continue;
-                try
+                if (SelectedProfile.IsRunning)
                 {
-                    var startInfo = new ProcessStartInfo
-                    {
-                        FileName = process.ExecutablePath,
-                        UseShellExecute = true
-                    };
+                    StopProfile(SelectedProfile);
+                    return;
+                }
 
-                    process.RunningProcess = Process.Start(startInfo);
-                    if (process.RunningProcess != null)
+                var launchTasks = SelectedProfile.Applications
+                    .Where(app => !string.IsNullOrEmpty(app.Path) &&
+                                !IsProcessRunning(Path.GetFileNameWithoutExtension(app.Path)))
+                    .Select(async app =>
                     {
-                        anyProcessStarted = true;
-                        process.RunningProcess.EnableRaisingEvents = true;
-                        // Handle process exit
-                        process.RunningProcess.Exited += (s, e) =>
+                        try
                         {
-                            Application.Current.Dispatcher.Invoke(() =>
+                            var startInfo = new ProcessStartInfo
                             {
-                                process.RunningProcess?.Dispose();
-                                process.RunningProcess = null;
-                                CheckIfProfileStillRunning(SelectedProfile);
-                            });
-                        };
-                    }
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show($"Failed to start process {process.Name}: {ex.Message}",
-                                  "Error",
-                                  MessageBoxButton.OK,
-                                  MessageBoxImage.Warning);
-                }
-            }
+                                FileName = app.Path,
+                                Arguments = app.Arguments,
+                                UseShellExecute = false
+                            };
 
-            if (anyProcessStarted)
-            {
+                            await Task.Run(() =>
+                            {
+                                var runningProcess = Process.Start(startInfo);
+                                app.RunningProcess = runningProcess;
+                            });
+                        }
+                        catch (Exception ex)
+                        {
+                            await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+                            {
+                                MessageBox.Show($"Failed to start process {app.Name}: {ex.Message}",
+                                              "Error",
+                                              MessageBoxButton.OK,
+                                              MessageBoxImage.Warning);
+                            });
+                        }
+                    });
+
+                await Task.WhenAll(launchTasks);
                 SelectedProfile.IsRunning = true;
                 OnPropertyChanged(nameof(LaunchButtonText));
             }
-        }
-
-        /// <summary>
-        /// Checks if any processes in the profile are still running
-        /// </summary>
-        private void CheckIfProfileStillRunning(LaunchProfile profile)
-        {
-            bool isStillRunning = profile.Processes.Any(p => p.RunningProcess != null && !p.RunningProcess.HasExited);
-            if (!isStillRunning)
+            finally
             {
-                profile.IsRunning = false;
-                OnPropertyChanged(nameof(LaunchButtonText));
+                IsLaunching = false;
             }
         }
 
@@ -322,7 +346,7 @@ namespace AppLauncher.ViewModels
 
             if (dialog.ShowDialog() == true)
             {
-                SelectedProcess.ExecutablePath = dialog.FileName;
+                SelectedProcess.Path = dialog.FileName;
                 var fileName = Path.GetFileNameWithoutExtension(dialog.FileName);
                 if (string.IsNullOrEmpty(SelectedProcess.Name) || SelectedProcess.Name == "New Process")
                 {
@@ -332,11 +356,12 @@ namespace AppLauncher.ViewModels
             }
         }
 
-        public event PropertyChangedEventHandler? PropertyChanged;
-
-        protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+        public void StopAllProfiles()
         {
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+            foreach (var profile in Profiles.Where(p => p.IsRunning))
+            {
+                StopProfile(profile);
+            }
         }
     }
 
@@ -363,5 +388,56 @@ namespace AppLauncher.ViewModels
         public bool CanExecute(object? parameter) => _canExecute?.Invoke() ?? true;
 
         public void Execute(object? parameter) => _execute();
+    }
+
+    public class ViewModelBase : INotifyPropertyChanged
+    {
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
+    }
+
+    public class AsyncRelayCommand : ICommand
+    {
+        private readonly Func<Task> _execute;
+        private readonly Func<bool>? _canExecute;
+        private bool _isExecuting;
+
+        public AsyncRelayCommand(Func<Task> execute, Func<bool>? canExecute = null)
+        {
+            _execute = execute;
+            _canExecute = canExecute;
+        }
+
+        public event EventHandler? CanExecuteChanged
+        {
+            add => CommandManager.RequerySuggested += value;
+            remove => CommandManager.RequerySuggested -= value;
+        }
+
+        public bool CanExecute(object? parameter)
+        {
+            return !_isExecuting && (_canExecute?.Invoke() ?? true);
+        }
+
+        public async void Execute(object? parameter)
+        {
+            if (_isExecuting) return;
+
+            try
+            {
+                _isExecuting = true;
+                CommandManager.InvalidateRequerySuggested();
+                await _execute();
+            }
+            finally
+            {
+                _isExecuting = false;
+                CommandManager.InvalidateRequerySuggested();
+            }
+        }
     }
 }
