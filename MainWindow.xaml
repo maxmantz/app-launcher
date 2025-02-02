@@ -1,0 +1,156 @@
+﻿<Window x:Class="AppLauncher.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:AppLauncher"
+        xmlns:vm="clr-namespace:AppLauncher.ViewModels"
+        mc:Ignorable="d"
+        Title="App Launcher"
+        Height="600"
+        Width="1000"
+        WindowStartupLocation="CenterScreen">
+
+    <!-- Bind the window to our MainViewModel -->
+    <Window.DataContext>
+        <vm:MainViewModel/>
+    </Window.DataContext>
+
+    <!-- Main layout grid with two columns: left for profiles list, right for details -->
+    <Grid Margin="10">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="250"/>
+            <!-- Fixed width for profiles list -->
+            <ColumnDefinition Width="*"/>
+            <!-- Remaining space for details -->
+        </Grid.ColumnDefinitions>
+
+        <!-- Left Panel - Contains the list of launch profiles -->
+        <DockPanel Grid.Column="0">
+            <!-- Header for profiles list -->
+            <TextBlock DockPanel.Dock="Top"
+                       Text="Launch Profiles"
+                       FontSize="18"
+                       Margin="0,0,0,10"/>
+
+            <!-- Profile management buttons at the bottom -->
+            <StackPanel DockPanel.Dock="Bottom"
+                        Orientation="Horizontal"
+                        Margin="0,10,0,0">
+                <!-- Button to create a new profile -->
+                <Button Content="Add Profile"
+                        Command="{Binding AddProfileCommand}"
+                        Width="115"
+                        Margin="0,0,5,0"/>
+                <!-- Button to delete the selected profile -->
+                <Button Content="Delete Profile"
+                        Command="{Binding DeleteProfileCommand}"
+                        Width="115"/>
+            </StackPanel>
+
+            <!-- List of profiles with running status indicator -->
+            <ListView ItemsSource="{Binding Profiles}"
+                      SelectedItem="{Binding SelectedProfile}">
+                <ListView.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Orientation="Horizontal">
+                            <!-- Profile name -->
+                            <TextBlock Text="{Binding Name}"/>
+                            <!-- Running status indicator - only visible when profile is running -->
+                            <TextBlock Text=" (Running)"
+                                       Margin="5,0,0,0"
+                                       Foreground="Green"
+                                       Visibility="{Binding IsRunning, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                        </StackPanel>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+        </DockPanel>
+
+        <!-- Right Panel - Profile Details -->
+        <DockPanel Grid.Column="1"
+                   Margin="20,0,0,0"
+                   IsEnabled="{Binding IsProfileSelected}">
+            <!-- Only enabled when a profile is selected -->
+
+            <!-- Profile header section with name and launch button -->
+            <Grid DockPanel.Dock="Top"
+                  Margin="0,0,0,20">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <!-- Label -->
+                    <ColumnDefinition Width="*"/>
+                    <!-- Name textbox -->
+                    <ColumnDefinition Width="Auto"/>
+                    <!-- Launch button -->
+                </Grid.ColumnDefinitions>
+
+                <!-- Profile name label -->
+                <TextBlock Text="Profile Name:"
+                           VerticalAlignment="Center"
+                           Margin="0,0,10,0"/>
+
+                <!-- Profile name input field -->
+                <TextBox Grid.Column="1"
+                         Text="{Binding SelectedProfile.Name, UpdateSourceTrigger=PropertyChanged}"
+                         VerticalAlignment="Center"/>
+
+                <!-- Launch/Stop button - changes appearance based on running state -->
+                <Button Grid.Column="2"
+                        Content="{Binding LaunchButtonText}"
+                        Command="{Binding LaunchProfileCommand}"
+                        Margin="10,0,0,0"
+                        Padding="10,5"
+                        Background="{Binding SelectedProfile.IsRunning, Converter={StaticResource BoolToButtonBackgroundConverter}}"/>
+            </Grid>
+
+            <!-- Processes section -->
+            <DockPanel>
+                <!-- Process management header -->
+                <StackPanel DockPanel.Dock="Top"
+                            Orientation="Horizontal"
+                            Margin="0,0,0,10">
+                    <TextBlock Text="Processes"
+                               FontSize="16"
+                               VerticalAlignment="Center"/>
+                    <!-- Button to add a new process to the profile -->
+                    <Button Content="Add Process"
+                            Command="{Binding AddProcessCommand}"
+                            Margin="20,0,0,0"/>
+                    <!-- Button to remove the selected process -->
+                    <Button Content="Delete Process"
+                            Command="{Binding DeleteProcessCommand}"
+                            Margin="10,0,0,0"/>
+                </StackPanel>
+
+                <!-- Grid displaying all processes in the profile -->
+                <DataGrid ItemsSource="{Binding SelectedProfile.Processes}"
+                          SelectedItem="{Binding SelectedProcess}"
+                          AutoGenerateColumns="False"
+                          CanUserAddRows="False">
+                    <DataGrid.Columns>
+                        <!-- Process name column -->
+                        <DataGridTextColumn Header="Name"
+                                            Binding="{Binding Name}"
+                                            Width="200"/>
+                        <!-- Executable path column -->
+                        <DataGridTextColumn Header="Executable Path"
+                                            Binding="{Binding ExecutablePath}"
+                                            Width="*"/>
+                        <!-- Browse button column for selecting executable files -->
+                        <DataGridTemplateColumn Width="100">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Button Content="Browse..."
+                                            Command="{Binding DataContext.BrowseExecutableCommand,
+                                                      RelativeSource={RelativeSource AncestorType=Window}}"
+                                            Margin="5"/>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+        </DockPanel>
+    </Grid>
+</Window>
